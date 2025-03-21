@@ -23,18 +23,18 @@ type config struct {
 type commands struct {
 	name        string
 	description string
-	callback    func(*config) error
+	callback    func(*config, []string) error
 }
 
 var supportedCommands map[string]commands
 
-func commandExit(c *config) (err error) {
+func commandExit(c *config, args []string) (err error) {
 	fmt.Println("Closing the Pokedex... Goodbye!")
 	os.Exit(0)
 	return
 }
 
-func commandHelp(c *config) (err error) {
+func commandHelp(c *config, args []string) (err error) {
 	fmt.Println("Welcome to the Pokedex!\nUsage:")
 	for k, v := range supportedCommands {
 		fmt.Printf("%s: %s\n", k, v.description)
@@ -54,7 +54,7 @@ func cleanInput(text string) []string {
 
 }
 
-func commandMap(c *config) (err error) {
+func commandMap(c *config, args []string) (err error) {
 	var url string
 	if c.Next == "" {
 		url = "https://pokeapi.co/api/v2/location-area/"
@@ -104,7 +104,7 @@ func commandMap(c *config) (err error) {
 	return
 }
 
-func commandMapb(c *config) (err error) {
+func commandMapb(c *config, args []string) (err error) {
 	var url string
 	if c.Previous == "" {
 		return fmt.Errorf("you're on the first page")
@@ -159,6 +159,50 @@ func commandMapb(c *config) (err error) {
 	return
 }
 
+func commandExplore(c *config, args []string) error {
+	fmt.Printf("Exploring %s...\n", args[0])
+	url := "https://pokeapi.co/api/v2/location-area/" + args[0]
+	val, exists := cache.Get(url)
+	var data []byte
+	if exists {
+		data = val
+	} else {
+		res, err := http.Get(url)
+		if err != nil {
+			return fmt.Errorf("There was an error in fetching the Pokemons.")
+		}
+		defer res.Body.Close()
+		data, err = io.ReadAll(res.Body)
+		if err != nil {
+			return fmt.Errorf("There was an error in reading the Pokemons")
+		}
+		cache.Set(url, data)
+	}
+	var httpResponse map[string]interface{}
+	err := json.Unmarshal(data, &httpResponse)
+	if err != nil {
+		return fmt.Errorf("There was an error in unmarshaling the data.")
+	}
+
+	pokemons, ok := httpResponse["pokemon_encounters"].([]interface{})
+	if !ok {
+		return fmt.Errorf("unexpected type for pokemon_encounters")
+	}
+
+	for _, m := range pokemons {
+		m2, ok := m.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("There was an error in reading the Pokemons.")
+		}
+		n, ok := m2["pokemon"].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("There was an error in reading the Pokemons.")
+		}
+		fmt.Println(n["name"])
+	}
+	return nil
+}
+
 func init() {
 	supportedCommands = map[string]commands{
 		"exit": {
@@ -181,6 +225,11 @@ func init() {
 			description: "Displays the names of previous 20 location areas in the Pokemon world",
 			callback:    commandMapb,
 		},
+		"explore": {
+			name:        "explore",
+			description: "Displays the names of all the pokemons in a certain location",
+			callback:    commandExplore,
+		},
 	}
 }
 
@@ -192,11 +241,12 @@ func main() {
 		scanner.Scan()
 		text := scanner.Text()
 		cleaned := cleanInput(text)
+		fmt.Printf("%v\n", cleaned)
 		command, exists := supportedCommands[strings.ToLower(cleaned[0])]
 		if !exists {
 			fmt.Println("Unknown command")
 		} else {
-			err := command.callback(&mapConfig)
+			err := command.callback(&mapConfig, cleaned[1:])
 			if err != nil {
 				fmt.Printf("%v\n", err)
 			}
