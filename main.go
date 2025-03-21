@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Pokedex/internal/pokecache"
 	"bufio"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,10 @@ import (
 	"os"
 	"strings"
 )
+
+const Interval = 5
+
+var cache = pokecache.NewCache(Interval)
 
 type config struct {
 	Next     string
@@ -30,7 +35,7 @@ func commandExit(c *config) (err error) {
 }
 
 func commandHelp(c *config) (err error) {
-	fmt.Println("Welcome to the Pokedex!\nUsage:\n")
+	fmt.Println("Welcome to the Pokedex!\nUsage:")
 	for k, v := range supportedCommands {
 		fmt.Printf("%s: %s\n", k, v.description)
 	}
@@ -65,7 +70,9 @@ func commandMap(c *config) (err error) {
 	if err != nil {
 		return fmt.Errorf("There was an error in reading the Pokemon Location Areas.")
 	}
+	cache.Set(url, data)
 	var httpResponse map[string]interface{}
+
 	err = json.Unmarshal(data, &httpResponse)
 	if err != nil {
 		return fmt.Errorf("There was an error in unmarshaling the data.")
@@ -104,14 +111,21 @@ func commandMapb(c *config) (err error) {
 	} else {
 		url = c.Previous
 	}
-	res, err := http.Get(url)
-	if err != nil {
-		return fmt.Errorf("There was an error in fetching the Pokemon Location Areas.")
-	}
-	defer res.Body.Close()
-	data, err := io.ReadAll(res.Body)
-	if err != nil {
-		return fmt.Errorf("There was an error in reading the Pokemon Location Areas.")
+
+	val, ok := cache.Get(url)
+	var data []byte
+	if ok {
+		data = val
+	} else {
+		res, err := http.Get(url)
+		if err != nil {
+			return fmt.Errorf("There was an error in fetching the Pokemon Location Areas.")
+		}
+		defer res.Body.Close()
+		data, err = io.ReadAll(res.Body)
+		if err != nil {
+			return fmt.Errorf("There was an error in reading the Pokemon Location Areas.")
+		}
 	}
 	var httpResponse map[string]interface{}
 	err = json.Unmarshal(data, &httpResponse)
